@@ -35,23 +35,19 @@ untag(DB, Id, Tag, Dest) ->
     db_loop(DB).
 
 dump(DB, Dest, Fun) ->
-    % TODO Check ets:tab2list
     Res = ets:foldl(Fun, [], DB),
     Dest ! {got, Res},
     db_loop(DB).
 
-make_search(Match) ->
-    fun (Elem) -> lists:any(fun(IElem) -> Elem == IElem end, Match) end.
+match_cmp(Tags) ->
+    fun(Elem) -> lists:any(fun(InnerElem) -> Elem == InnerElem end, Tags) end.
 
-% TODO See ets:fun2ms
 make_matcher(Match) ->
-    % We're doing a crap solution here, TODO make this faster by sorting 
-    % list patterns.
-    fun({_Id, Bookmark, Tags}, Acc) ->
-            case lists:any(make_search(Match), Tags) of 
-                true -> [Bookmark|Acc];
-                false -> Acc
-            end
+    fun({_Id, Bookmark, Tags}, Acc) -> 
+        case lists:all(match_cmp(Tags), Match) of
+            true -> [Bookmark|Acc];
+            false-> Acc
+        end
     end.
 
 db_loop(DB) -> 
