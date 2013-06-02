@@ -1,5 +1,5 @@
--module(super).
--export([start_link/0, init/0, stop/0]).
+-module(bookmarks_sup).
+-export([start/0, start_link/0, init/0, stop/0]).
 
 init() ->
     %link to bookmark server
@@ -39,3 +39,5 @@ start_link() ->
 stop() -> 
     supervisor ! {stop}, ok.
 
+start() ->
+    start_link(), io:format("Bookmark supervisor started\n").
