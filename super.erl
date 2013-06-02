@@ -3,11 +3,20 @@
 
 init() ->
     %link to bookmark server
-    loop(register(bookmarks, spawn_link(bookmark, init, []))).
+    process_flag(trap_exit, true),
+    bookmark:start_link(),
+    loop(0).
 
-loop(_Child) ->
+restart(N) when N < 3 ->
+    bookmark:start_link(),
+    loop(N+1);
+restart(_N) ->
+    exit("Child restarted more than 3 times").
+
+loop(N) ->
     receive
-        {stop} -> ok
+        {stop} -> exit("stopped");
+        {'EXIT', _Pid, _Reason} -> restart(N)
     end.
 
 start_link() ->

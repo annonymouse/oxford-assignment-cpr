@@ -2,7 +2,7 @@
 -export([start_link/0, add_bookmark/1, add_bookmark/2, remove_bookmark/1,
         add_tag/2, remove_tag/2, get_bookmarks/0, get_bookmarks/1, stop/0]).
 % Not in the spec, for convenience
--export([]).
+-export([crash/0]).
 % internal exports for spawning things
 -export([init/0]).
 
@@ -59,14 +59,17 @@ db_loop(DB) ->
         {dump, Dest} -> dump(DB, Dest, 
                 fun({_Id, Bookmark,_Tags}, Acc) -> [Bookmark|Acc] end);
         {match, Match, Dest} -> dump(DB, Dest, make_matcher(Match)); 
+        crash -> exit("Crash");
         stop -> ok
     end.
-    
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+
 start_link() ->
     % we don't want a random spawn, we should check whether bookmarks exist
     case whereis(bookmarks) of
         undefined -> register(bookmarks, 
-                spawn(?MODULE, init, [])), {ok, whereis(bookmarks)};
+                spawn_link(?MODULE, init, [])), {ok, whereis(bookmarks)};
         _Ref -> {error, already_started}
     end.
 
@@ -110,3 +113,7 @@ get_bookmarks(Tags) ->
 % Assuming here that the stop will kill the bookmark too.
 stop() -> bookmarks ! stop, ok.
 
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+crash() -> bookmarks ! crash, ok.
