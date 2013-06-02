@@ -133,7 +133,9 @@ client_loop(Server) ->
 
 connect_server(Server) ->
     case whereis(bookmarks) of 
-        undefined -> register(bookmarks, spawn_link(?MODULE, client_init, [Server])), {ok, whereis(bookmarks)};
+        undefined -> register(bookmarks, 
+                spawn_link(?MODULE, client_init, [Server])), 
+            {ok, whereis(bookmarks)};
         _Ref -> {error, already_connected}
     end.
 
