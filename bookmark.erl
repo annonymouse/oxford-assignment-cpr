@@ -1,12 +1,13 @@
 -module(bookmark).
 -export([start_link/0, add_bookmark/1, add_bookmark/2, remove_bookmark/1,
-        add_tag/2, remove_tag/2, get_bookmarks/0, get_bookmarks/1, stop/0]).
+        add_tag/2, remove_tag/2, get_bookmarks/0, get_bookmarks/1, stop/0, 
+        connect_server/1]).
 % Not in the spec, for convenience
 -export([crash/0]).
 % internal exports for spawning things
--export([init/0]).
+-export([server_init/0, client_init/1]).
 
-init() -> 
+server_init() -> 
     db_loop(ets:new(store, [set,private])).
 
 add(DB, Url, Tags, Dest) ->
@@ -69,7 +70,7 @@ start_link() ->
     % we don't want a random spawn, we should check whether bookmarks exist
     case whereis(bookmarks) of
         undefined -> register(bookmarks, 
-                spawn_link(?MODULE, init, [])), {ok, whereis(bookmarks)};
+                spawn_link(?MODULE, server_init, [])), {ok, whereis(bookmarks)};
         _Ref -> {error, already_started}
     end.
 
@@ -113,7 +114,26 @@ get_bookmarks(Tags) ->
 % Assuming here that the stop will kill the bookmark too.
 stop() -> bookmarks ! stop, ok.
 
-
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 crash() -> bookmarks ! crash, ok.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+% Client process
+client_init(Server) ->
+    client_loop({bookmarks, Server}).
+
+client_loop(Server) ->
+    receive 
+        X -> Server ! X, client_loop(Server)
+    end.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+connect_server(Server) ->
+    case whereis(bookmarks) of 
+        undefined -> register(bookmarks, spawn_link(?MODULE, client_init, [Server])), {ok, whereis(bookmarks)};
+        _Ref -> {error, already_connected}
+    end.
+
