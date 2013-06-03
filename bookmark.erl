@@ -1,68 +1,11 @@
 -module(bookmark).
 -export([start_link/0, add_bookmark/1, add_bookmark/2, remove_bookmark/1,
         add_tag/2, remove_tag/2, get_bookmarks/0, get_bookmarks/1, stop/0, 
-        connect_server/1]).
+        connect_server/2]).
 % Not in the spec, for convenience
 -export([crash/0]).
 % internal exports for spawning things
--export([server_init/0, client_init/1]).
-
-server_init() -> 
-    db_loop(ets:new(store, [set,private])).
-
-add(DB, Url, Tags, Dest) ->
-    Id = now(), 
-    ets:insert(DB, {Id, Url, Tags}),
-    Dest ! {addAck, Id},
-    db_loop(DB).
-
-remove(DB, Id) ->
-    ets:delete(DB, Id),
-    db_loop(DB).
-
-update_tags(DB, Id, UpdateTags) ->
-    case ets:lookup(DB, Id) of
-        [{Id, Url, Tags}] -> ets:insert(DB, {Id, Url, UpdateTags(Tags)}), ok;
-        [] -> {error, not_found}
-    end.
-
-tag(DB, Id, Tag, Dest) ->
-    Dest ! {addtagAck, update_tags(DB, Id, fun(Tags) -> [Tag|Tags] end)},
-    db_loop(DB).
-
-untag(DB, Id, Tag, Dest) ->
-    Dest ! {remtagAck, 
-        update_tags(DB, Id, fun(Tags) -> lists:delete(Tags,Tag) end)},
-    db_loop(DB).
-
-dump(DB, Dest, Fun) ->
-    Res = ets:foldl(Fun, [], DB),
-    Dest ! {got, Res},
-    db_loop(DB).
-
-match_cmp(Tags) ->
-    fun(Elem) -> lists:any(fun(InnerElem) -> Elem == InnerElem end, Tags) end.
-
-make_matcher(Match) ->
-    fun({_Id, Bookmark, Tags}, Acc) -> 
-        case lists:all(match_cmp(Tags), Match) of
-            true -> [Bookmark|Acc];
-            false-> Acc
-        end
-    end.
-
-db_loop(DB) -> 
-    receive
-        {add, Url, Tags, Dest} -> add(DB, Url, Tags, Dest);
-        {remove, Id} -> remove(DB, Id);
-        {addtag, Id, Tag, Dest} -> tag(DB, Id, Tag, Dest);
-        {remtag, Id, Tag, Dest} -> untag(DB, Id, Tag, Dest);
-        {dump, Dest} -> dump(DB, Dest, 
-                fun({_Id, Bookmark,_Tags}, Acc) -> [Bookmark|Acc] end);
-        {match, Match, Dest} -> dump(DB, Dest, make_matcher(Match)); 
-        crash -> exit("Crash");
-        stop -> ok
-    end.
+-export([client_init/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
 
@@ -98,7 +41,6 @@ remove_tag(Id, Tag) ->
         {remtagAck, Res} -> Res
     end.
 
-% get is a bif, so we can't use it as an atom here...
 get_bookmarks() -> 
     bookmarks ! {dump, self()},
     receive
@@ -121,20 +63,41 @@ crash() -> bookmarks ! crash, ok.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 % Client process
-client_init(Server) ->
-    client_loop({bookmarks, Server}).
+client_init(Server, Backup) ->
+    % monitor remote server
+    monitor_node(Server, true),
+    monitor_node(Backup, true),
+    client_loop(Server, Backup).
 
-client_loop(Server) ->
+client_loop(Server, Backup) ->
     receive 
-        X -> Server ! X, client_loop(Server)
+        {nodedown, Server} -> io:format("Lost contact with bookmarking server"),
+            client_recover(Server, Backup, Backup, Server, now());
+        {nodedown, Backup} -> io:format("Lost contact with backup"), 
+            client_recover(Server, Backup, Server, Backup, now());
+        X -> {bookmarks, Server} ! X, client_loop(Server, Backup)
     end.
 
+% Try to reconnect no more than every second
+client_recover(Server, Backup, Up, Down, Timeout) ->
+    case timer:now_diff (now(), Timeout) of
+        T when (T > 1000000) ->
+            monitor_node(Down, true),
+            client_loop(Server, Backup);
+        _ -> ok
+    end,
+    receive
+        {nodedown, Up} -> io:format("Lost contact with both servers"), 
+            exit("Lost contact with both servers");
+        X -> {bookmarks, Up} ! X, 
+            client_recover(Server, Backup, Up, Down, Timeout)
+    end.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-connect_server(Server) ->
+connect_server(Server, Backup) ->
     case whereis(bookmarks) of 
         undefined -> register(bookmarks, 
-                spawn_link(?MODULE, client_init, [Server])), 
+                spawn_link(?MODULE, client_init, [Server, Backup])), 
             {ok, whereis(bookmarks)};
         _Ref -> {error, already_connected}
     end.
