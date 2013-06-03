@@ -4,16 +4,18 @@
 -export([server_init/2]).
 
 server_init(Partner, Role) -> 
-    {bookmarks , Partner} ! {init, self(), Role},
+    {bookmarks , Partner} ! {init, node(), Role},
     db_loop(ets:new(store, [set,private]), Partner).
 
 add(DB, Partner, Url, Tags, Dest) ->
     Id = now(), 
+    {bookmarks, Partner} ! {sync_add, {Id, Url, Tags}},
     ets:insert(DB, {Id, Url, Tags}),
     Dest ! {addAck, Id},
     db_loop(DB, Partner).
 
 remove(DB, Partner, Id) ->
+    {bookmarks, Partner} ! {sync_rem, Id},
     ets:delete(DB, Id),
     db_loop(DB, Partner).
 
@@ -24,10 +26,12 @@ update_tags(DB, Id, UpdateTags) ->
     end.
 
 tag(DB, Partner, Id, Tag, Dest) ->
+    {bookmarks, Partner} ! {sync_addtag, Id, Tag},
     Dest ! {addtagAck, update_tags(DB, Id, fun(Tags) -> [Tag|Tags] end)},
     db_loop(DB, Partner).
 
 untag(DB, Partner, Id, Tag, Dest) ->
+    {bookmarks, Partner} ! {sync_remtag, Id, Tag},
     Dest ! {remtagAck, 
         update_tags(DB, Id, fun(Tags) -> lists:delete(Tags,Tag) end)},
     db_loop(DB, Partner).
@@ -48,15 +52,32 @@ make_matcher(Match) ->
         end
     end.
 
-partner_awake(DB, Partner, Role) ->
+sync_add(DB, Partner, Data) ->
+    ets:insert(DB, Data),
+    db_loop(DB, Partner).
+
+sync_rem(DB, Partner, Id) ->
+    ets:delete(DB, Id),
+    db_loop(DB, Partner).
+
+sync_addtag(DB, Partner, Id, Tag) ->
+    update_tags(DB, Id, fun(Tags) -> [Tag|Tags] end), 
+    db_loop(DB, Partner).
+
+sync_removetag(DB, Partner, Id, Tag) ->
+    update_tags(DB, Id, fun(Tags) -> lists:delete(Tags, Tag) end),
+    db_loop(DB, Partner).
+
+partner_awake(DB, Partner, _Role) ->
     % Partner has woken up, we should share state
     monitor_node(Partner, true),
-    case Role of 
-        slave -> {bookmark, Partner} ! {flatten, DB};
-        _ -> ok
-    end,
+    {bookmarks, Partner} ! {flatten, ets:tab2list(DB)},
     db_loop(DB, Partner).
-    
+
+overwrite(DB, OtherDB, Partner) ->
+    lists:foreach(fun(Elem) -> ets:insert(Elem), Elem end, OtherDB),
+    db_loop(DB, Partner).
+
 db_loop(DB, Partner) -> 
     receive
         {add, Url, Tags, Dest} -> add(DB, Partner,  Url, Tags, Dest);
@@ -66,9 +87,16 @@ db_loop(DB, Partner) ->
         {dump, Dest} -> dump(DB, Partner, Dest, 
                 fun({_Id, Bookmark,_Tags}, Acc) -> [Bookmark|Acc] end);
         {match, Match, Dest} -> dump(DB, Partner, Dest, make_matcher(Match)); 
-        {flatten, OtherDB} when is_list(OtherDB) -> db_loop(OtherDB, Partner);
-        {init, Partner, Role} -> partner_awake(DB, Partner, Role);
+        %partner bookmark server messages
+        {flatten, OtherDB} when is_list(OtherDB) -> 
+            overwrite(DB, OtherDB, Partner);
+        {init, NewPartner, Role} -> partner_awake(DB, NewPartner, Role);
         {nodedown, Partner} -> db_loop(DB, Partner);
+        {sync_add, Data} -> sync_add(DB, Partner, Data);
+        {sync_rem, Id} -> sync_rem(DB, Partner, Id);
+        {sync_addtag, Id, Tag} -> sync_addtag(DB, Partner, Id, Tag);
+        {sync_remtag, Id, Tag} -> sync_removetag(DB, Partner, Id, Tag);
+        {debug} -> tv:start(), db_loop(DB, Partner);
         {crash, Reason} -> exit(Reason);
         stop -> ok
     end.

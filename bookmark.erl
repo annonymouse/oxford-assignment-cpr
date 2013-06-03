@@ -3,7 +3,7 @@
         add_tag/2, remove_tag/2, get_bookmarks/0, get_bookmarks/1, stop/0, 
         connect_server/2]).
 % Not in the spec, for convenience
--export([crash/1]).
+-export([crash/1, debug/0]).
 % internal exports for spawning things
 -export([client_init/2]).
 
@@ -59,6 +59,8 @@ stop() -> bookmarks ! stop, ok.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 crash(Reason) -> bookmarks ! {crash, Reason}, ok.
+
+debug() -> bookmarks ! {debug}, ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

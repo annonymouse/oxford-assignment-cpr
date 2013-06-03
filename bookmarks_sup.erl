@@ -8,17 +8,17 @@ init(Partner, Role) ->
     loop([], Partner, Role).
 
 restart([], Partner, Role) ->
-    bookmark_server:start_link(),
+    bookmark_server:start_link(Partner, Role),
     loop([now()|[]], Partner, Role);
 restart(N, Partner, Role) when length(N) < 3 ->
-    bookmark_server:start_link(),
+    bookmark_server:start_link(Partner, Role),
     loop([now()|N], Partner, Role);
 restart(N, Partner, Role) ->
     Min = lists:min(N),
     Cur = now(),
     case timer:now_diff(Cur, Min) of
         T when (T > 3000000) ->
-            bookmark_server:start_link(),
+            bookmark_server:start_link(Partner, Role),
             loop([Cur|lists:delete(Min, N)], Partner, Role);
         _ -> 
             exit("Child won't recover")
