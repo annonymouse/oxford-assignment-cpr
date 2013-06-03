@@ -1,10 +1,10 @@
 -module(bookmark_server).
--export([start_link/2]).
+-export([start_link/1]).
 % internal exports for spawning things
--export([server_init/2]).
+-export([server_init/1]).
 
-server_init(Partner, Role) -> 
-    {bookmarks , Partner} ! {init, node(), Role},
+server_init(Partner) -> 
+    {bookmarks , Partner} ! {init, node()},
     db_loop(ets:new(store, [set,private]), Partner).
 
 add(DB, Partner, Url, Tags, Dest) ->
@@ -68,7 +68,7 @@ sync_removetag(DB, Partner, Id, Tag) ->
     update_tags(DB, Id, fun(Tags) -> lists:delete(Tags, Tag) end),
     db_loop(DB, Partner).
 
-partner_awake(DB, Partner, _Role) ->
+partner_awake(DB, Partner) ->
     % Partner has woken up, we should share state
     monitor_node(Partner, true),
     {bookmarks, Partner} ! {flatten, ets:tab2list(DB)},
@@ -90,7 +90,7 @@ db_loop(DB, Partner) ->
         %partner bookmark server messages
         {flatten, OtherDB} when is_list(OtherDB) -> 
             overwrite(DB, OtherDB, Partner);
-        {init, NewPartner, Role} -> partner_awake(DB, NewPartner, Role);
+        {init, NewPartner} -> partner_awake(DB, NewPartner);
         {nodedown, Partner} -> db_loop(DB, Partner);
         {sync_add, Data} -> sync_add(DB, Partner, Data);
         {sync_rem, Id} -> sync_rem(DB, Partner, Id);
@@ -101,11 +101,11 @@ db_loop(DB, Partner) ->
         stop -> ok
     end.
 
-start_link(Partner, Role) ->
+start_link(Partner) ->
     % we don't want a random spawn, we should check whether bookmarks exist
     case whereis(bookmarks) of
         undefined -> register(bookmarks, 
-                spawn_link(?MODULE, server_init, [Partner, Role])),
+                spawn_link(?MODULE, server_init, [Partner])),
             {ok, whereis(bookmarks)};
         _Ref -> {error, already_started}
     end.

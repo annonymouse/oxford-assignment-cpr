@@ -1,7 +1,7 @@
 -module(bookmark).
 -export([start_link/0, add_bookmark/1, add_bookmark/2, remove_bookmark/1,
         add_tag/2, remove_tag/2, get_bookmarks/0, get_bookmarks/1, stop/0, 
-        connect_server/2]).
+        connect_server/2, start/1]).
 % Not in the spec, for convenience
 -export([crash/1, debug/0]).
 % internal exports for spawning things
@@ -103,4 +103,8 @@ connect_server(Server, Backup) ->
             {ok, whereis(bookmarks)};
         _Ref -> {error, already_connected}
     end.
+
+start([Server, Backup]) ->
+    connect_server(Server, Backup).
+
 
