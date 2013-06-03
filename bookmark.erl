@@ -3,7 +3,7 @@
         add_tag/2, remove_tag/2, get_bookmarks/0, get_bookmarks/1, stop/0, 
         connect_server/2]).
 % Not in the spec, for convenience
--export([crash/0]).
+-export([crash/1]).
 % internal exports for spawning things
 -export([client_init/2]).
 
@@ -58,7 +58,7 @@ stop() -> bookmarks ! stop, ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-crash() -> bookmarks ! crash, ok.
+crash(Reason) -> bookmarks ! {crash, Reason}, ok.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
@@ -71,9 +71,9 @@ client_init(Server, Backup) ->
 
 client_loop(Server, Backup) ->
     receive 
-        {nodedown, Server} -> io:format("Lost contact with bookmarking server"),
+        {nodedown, Server} -> io:format("Lost contact with bookmarking server\n"),
             client_recover(Server, Backup, Backup, Server, now());
-        {nodedown, Backup} -> io:format("Lost contact with backup"), 
+        {nodedown, Backup} -> io:format("Lost contact with backup\n"), 
             client_recover(Server, Backup, Server, Backup, now());
         X -> {bookmarks, Server} ! X, client_loop(Server, Backup)
     end.
@@ -87,8 +87,8 @@ client_recover(Server, Backup, Up, Down, Timeout) ->
         _ -> ok
     end,
     receive
-        {nodedown, Up} -> io:format("Lost contact with both servers"), 
-            exit("Lost contact with both servers");
+        {nodedown, Up} -> io:format("Lost contact with both servers\n"), 
+            exit("Lost contact with both servers\n");
         X -> {bookmarks, Up} ! X, 
             client_recover(Server, Backup, Up, Down, Timeout)
     end.

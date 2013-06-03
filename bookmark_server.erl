@@ -1,20 +1,21 @@
 -module(bookmark_server).
--export([start_link/0]).
+-export([start_link/2]).
 % internal exports for spawning things
--export([server_init/0]).
+-export([server_init/2]).
 
-server_init() -> 
-    db_loop(ets:new(store, [set,private])).
+server_init(Partner, Role) -> 
+    {bookmarks , Partner} ! {init, self(), Role},
+    db_loop(ets:new(store, [set,private]), Partner).
 
-add(DB, Url, Tags, Dest) ->
+add(DB, Partner, Url, Tags, Dest) ->
     Id = now(), 
     ets:insert(DB, {Id, Url, Tags}),
     Dest ! {addAck, Id},
-    db_loop(DB).
+    db_loop(DB, Partner).
 
-remove(DB, Id) ->
+remove(DB, Partner, Id) ->
     ets:delete(DB, Id),
-    db_loop(DB).
+    db_loop(DB, Partner).
 
 update_tags(DB, Id, UpdateTags) ->
     case ets:lookup(DB, Id) of
@@ -22,19 +23,19 @@ update_tags(DB, Id, UpdateTags) ->
         [] -> {error, not_found}
     end.
 
-tag(DB, Id, Tag, Dest) ->
+tag(DB, Partner, Id, Tag, Dest) ->
     Dest ! {addtagAck, update_tags(DB, Id, fun(Tags) -> [Tag|Tags] end)},
-    db_loop(DB).
+    db_loop(DB, Partner).
 
-untag(DB, Id, Tag, Dest) ->
+untag(DB, Partner, Id, Tag, Dest) ->
     Dest ! {remtagAck, 
         update_tags(DB, Id, fun(Tags) -> lists:delete(Tags,Tag) end)},
-    db_loop(DB).
+    db_loop(DB, Partner).
 
-dump(DB, Dest, Fun) ->
+dump(DB, Partner, Dest, Fun) ->
     Res = ets:foldl(Fun, [], DB),
     Dest ! {got, Res},
-    db_loop(DB).
+    db_loop(DB, Partner).
 
 match_cmp(Tags) ->
     fun(Elem) -> lists:any(fun(InnerElem) -> Elem == InnerElem end, Tags) end.
@@ -47,24 +48,37 @@ make_matcher(Match) ->
         end
     end.
 
-db_loop(DB) -> 
+partner_awake(DB, Partner, Role) ->
+    % Partner has woken up, we should share state
+    monitor_node(Partner, true),
+    case Role of 
+        slave -> {bookmark, Partner} ! {flatten, DB};
+        _ -> ok
+    end,
+    db_loop(DB, Partner).
+    
+db_loop(DB, Partner) -> 
     receive
-        {add, Url, Tags, Dest} -> add(DB, Url, Tags, Dest);
-        {remove, Id} -> remove(DB, Id);
-        {addtag, Id, Tag, Dest} -> tag(DB, Id, Tag, Dest);
-        {remtag, Id, Tag, Dest} -> untag(DB, Id, Tag, Dest);
-        {dump, Dest} -> dump(DB, Dest, 
+        {add, Url, Tags, Dest} -> add(DB, Partner,  Url, Tags, Dest);
+        {remove, Id} -> remove(DB, Partner, Id);
+        {addtag, Id, Tag, Dest} -> tag(DB, Partner, Id, Tag, Dest);
+        {remtag, Id, Tag, Dest} -> untag(DB, Partner, Id, Tag, Dest);
+        {dump, Dest} -> dump(DB, Partner, Dest, 
                 fun({_Id, Bookmark,_Tags}, Acc) -> [Bookmark|Acc] end);
-        {match, Match, Dest} -> dump(DB, Dest, make_matcher(Match)); 
-        crash -> exit("Crash");
+        {match, Match, Dest} -> dump(DB, Partner, Dest, make_matcher(Match)); 
+        {flatten, OtherDB} when is_list(OtherDB) -> db_loop(OtherDB, Partner);
+        {init, Partner, Role} -> partner_awake(DB, Partner, Role);
+        {nodedown, Partner} -> db_loop(DB, Partner);
+        {crash, Reason} -> exit(Reason);
         stop -> ok
     end.
 
-start_link() ->
+start_link(Partner, Role) ->
     % we don't want a random spawn, we should check whether bookmarks exist
     case whereis(bookmarks) of
         undefined -> register(bookmarks, 
-                spawn_link(?MODULE, server_init, [])), {ok, whereis(bookmarks)};
+                spawn_link(?MODULE, server_init, [Partner, Role])),
+            {ok, whereis(bookmarks)};
         _Ref -> {error, already_started}
     end.
 
