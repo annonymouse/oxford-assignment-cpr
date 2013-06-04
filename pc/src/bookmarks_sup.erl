@@ -1,5 +1,5 @@
 -module(bookmarks_sup).
--export([start/1, start_link/1, init/1, stop/0]).
+-export([start/2, init/1, stop/1]).
 
 init(Partner) ->
     %link to bookmark server
@@ -27,18 +27,17 @@ restart(N, Partner) ->
 loop(N, Partner) ->
     receive
         {stop} -> exit("stopped");
+        {'EXIT', _Pid, shutdown} -> ok;
         {'EXIT', _Pid, _Reason} -> restart(N, Partner)
     end.
 
-start_link(Partner) ->
+start(_Type, [Partner]) ->
     case whereis(supervisor) of
-        undefined -> register(supervisor, spawn(?MODULE, init, [Partner]));
+        undefined -> register(supervisor, spawn(?MODULE, init, [Partner])),
+            {ok, whereis(supervisor)};
         _Ref -> {error, already_started}
     end.
 
-stop() -> 
+stop(_State) -> 
     supervisor ! {stop}, ok.
-
-start([Partner]) ->
-    start_link(Partner), io:format("Bookmark supervisor started\n").
 

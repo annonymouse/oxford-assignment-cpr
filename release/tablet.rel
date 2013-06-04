@@ -1,0 +1,8 @@
+{release, 
+    {"tablet", "A"},
+    {erts, "5.10.1"},
+    [{kernel, "2.16.1"}, 
+    {stdlib, "1.19.1"},
+    {tablet, "2.4.0.1"}
+    ]
+}.

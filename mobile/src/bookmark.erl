@@ -1,7 +1,7 @@
 -module(bookmark).
 -export([start_link/0, add_bookmark/1, add_bookmark/2, remove_bookmark/1,
         add_tag/2, remove_tag/2, get_bookmarks/0, get_bookmarks/1, stop/0, 
-        connect_server/2, start/1]).
+        stop/1, start/2]).
 % Not in the spec, for convenience
 -export([crash/1, debug/0]).
 % internal exports for spawning things
@@ -77,6 +77,7 @@ client_loop(Server, Backup) ->
             client_recover(Server, Backup, Backup, Server, now());
         {nodedown, Backup} -> io:format("Lost contact with backup\n"), 
             client_recover(Server, Backup, Server, Backup, now());
+        {localstop} -> ok;
         X -> {bookmarks, Server} ! X, client_loop(Server, Backup)
     end.
 
@@ -96,7 +97,7 @@ client_recover(Server, Backup, Up, Down, Timeout) ->
     end.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-connect_server(Server, Backup) ->
+start(_Type, [Server, Backup]) ->
     case whereis(bookmarks) of 
         undefined -> register(bookmarks, 
                 spawn_link(?MODULE, client_init, [Server, Backup])), 
@@ -104,7 +105,6 @@ connect_server(Server, Backup) ->
         _Ref -> {error, already_connected}
     end.
 
-start([Server, Backup]) ->
-    connect_server(Server, Backup).
-
+stop(_State) ->
+    bookmarks ! {localstop}, ok.
 
