@@ -1,5 +1,5 @@
 -module(bookmark).
--export([start_link/0, add_bookmark/1, add_bookmark/2, remove_bookmark/1,
+-export(add_bookmark/1, add_bookmark/2, remove_bookmark/1,
         add_tag/2, remove_tag/2, get_bookmarks/0, get_bookmarks/1, stop/0, 
         stop/1, start/2]).
 % Not in the spec, for convenience
@@ -8,14 +8,6 @@
 -export([client_init/2]).
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
-
-start_link() ->
-    % we don't want a random spawn, we should check whether bookmarks exist
-    case whereis(bookmarks) of
-        undefined -> register(bookmarks, 
-                spawn_link(?MODULE, server_init, [])), {ok, whereis(bookmarks)};
-        _Ref -> {error, already_started}
-    end.
 
 add_bookmark(Url) ->
     add_bookmark(Url, []).
